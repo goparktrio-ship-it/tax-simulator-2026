@@ -369,9 +369,9 @@ def main():
   st.title("🏠 종합부동산세 및 총 보유세 시뮬레이터")
   st.markdown("---")
 
-  with st.sidebar:
-    st.header("⚙️ 시뮬레이션 설정")
-
+  # [모바일 친화적 변경] sidebar를 완전히 없애고 메인 화면 expander 폼으로 배치
+  with st.expander("⚙️ 시뮬레이션 설정 (여기를 눌러 입력값을 변경하세요)", expanded=True):
+    
     property_choice = st.selectbox(
         "과세 유형 선택",
         [
@@ -380,11 +380,9 @@ def main():
             ("HEAVY_MULTI_HOME", "1세대 1주택자를 제외한 조정지역 주택 보유자 + 3주택 이상"),
         ],
         format_func=lambda x: x[1],
-    )[0] 
+    )
     
     is_multi = property_choice in ["LOCAL_MULTI_HOME", "HEAVY_MULTI_HOME"]
-
-    realization_rate = st.slider("공시가격 현실화율 (%)", min_value=50.0, max_value=100.0, value=69.0, step=1.0)
     st.divider()
 
     if is_multi:
@@ -395,6 +393,8 @@ def main():
         
         market_price_non_res_man = st.number_input("비거주 주택 시가 합계 (만원)", min_value=0, value=300000, step=1000, format="%d")
         st.markdown(f"<div style='color: #4CAF50; font-weight: bold; margin-top: -10px; margin-bottom: 10px;'>{format_korean_currency(market_price_non_res_man * 10000)}</div>", unsafe_allow_html=True)
+        
+        realization_rate = st.slider("공시가격 현실화율 (%)", min_value=50.0, max_value=100.0, value=69.0, step=1.0)
         
         market_price_res = market_price_res_man * 10000
         market_price_non_res = market_price_non_res_man * 10000
@@ -415,14 +415,14 @@ def main():
         st.markdown(f"<div style='color: #4CAF50; font-weight: bold; margin-top: -10px; margin-bottom: 10px;'>{format_korean_currency(market_total_man * 10000)}</div>", unsafe_allow_html=True)
         market_total = market_total_man * 10000
         
+        realization_rate = st.slider("공시가격 현실화율 (%)", min_value=50.0, max_value=100.0, value=69.0, step=1.0)
         total_price = int(market_total * (realization_rate / 100.0))
         
-        # [UI 개선] 입력 직후 과세 기준 공시가 바로 노출
         st.info(f"📌 **과세 기준 공시가: `{total_price:,.0f}` 원**")
 
         st.divider()
+        st.subheader("📝 명의 및 거주 정보")
         
-        # [UI 개선] 소유 형태 및 거주 여부 논리적 그룹화
         ownership_type = st.radio(
             "소유 형태 및 과세 방식",
             ["단독 명의 (또는 공동명의 1주택 특례)", "부부 공동 명의 (기본과세)"]
@@ -435,9 +435,13 @@ def main():
 
         st.divider()
         st.subheader("🧑 연령 및 기간 정보")
-        base_age = st.number_input("2026년 기준 연령 (세)", min_value=20, max_value=110, value=70)
-        base_holding_years = st.number_input("2026년 기준 보유기간 (년)", min_value=1, max_value=50, value=10)
-        base_residence_years = st.number_input("2026년 기준 거주기간 (년)", min_value=0, max_value=50, value=10)
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            base_age = st.number_input("2026년 기준 연령(세)", min_value=20, max_value=110, value=70)
+        with col2:
+            base_holding_years = st.number_input("2026년 기준 보유기간(년)", min_value=1, max_value=50, value=10)
+        with col3:
+            base_residence_years = st.number_input("2026년 기준 거주기간(년)", min_value=0, max_value=50, value=10)
 
     st.divider()
     apply_tax_cap = st.checkbox("전년 대비 세부담 상한(200%) 적용", value=False)
@@ -447,6 +451,7 @@ def main():
     else:
         tax_2025 = 0
 
+  # 결과 계산
   results = ComprehensiveTaxEngine.run_simulation(
       total_price=total_price,
       price_res=price_res,
@@ -459,6 +464,9 @@ def main():
       apply_tax_cap=apply_tax_cap,
   )
 
+  st.markdown("### 📊 산출 결과")
+  
+  # 모바일 화면에서는 columns가 세로로 층층이 쌓이도록 처리됨
   cols = st.columns(3)
   for idx, res in enumerate(results):
     with cols[idx]:
