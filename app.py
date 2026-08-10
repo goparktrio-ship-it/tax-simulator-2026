@@ -379,7 +379,7 @@ def main():
         [
             ("RESIDENT_1HOME", "1세대 1주택자 (특례 신청 포함)"),
             ("LOCAL_MULTI_HOME", "지방 1주택 + 지방 2주택자"),
-            ("HEAVY_MULTI_HOME", "1세대 1주택자를 제외한 조정지역 주택 보유자 + 3주택 이상"),
+            ("HEAVY_MULTI_HOME", "조정지역 주택 보유 다주택자 + 3주택 이상"),
         ],
         format_func=lambda x: x[1],
     )[0]  # <-- 바로 이 [0] 이 빠져 있었습니다!
