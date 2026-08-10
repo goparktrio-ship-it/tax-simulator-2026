@@ -87,11 +87,8 @@ class ComprehensiveTaxEngine:
     ratio = price_res / total_price if total_price > 0 else 0
 
     if year_label == "2026년":
-      # [버그 롤백 및 수정] 이전 사이드바 제거 과정에서 로직이 꼬여 단독/공동명의 공제액이 오작동하던 부분을 원상복구했습니다.
-      if is_joint_default:
-        return 1_800_000_000
       if property_type == "RESIDENT_1HOME":
-        return 1_200_000_000
+        return 1_800_000_000 if is_joint_default else 1_200_000_000
       return 900_000_000
     else:
       if property_type == "RESIDENT_1HOME":
@@ -385,6 +382,10 @@ def main():
     )
     
     is_multi = property_choice in ["LOCAL_MULTI_HOME", "HEAVY_MULTI_HOME"]
+    
+    # [핵심 수정 1] 공시가격 현실화율 슬라이더를 분기문 바깥으로 원상복구
+    # (Streamlit에서 슬라이더가 렌더링될 때 State(값)가 날아가거나 0으로 초기화되는 치명적 버그 해결)
+    realization_rate = st.slider("공시가격 현실화율 (%)", min_value=50.0, max_value=100.0, value=69.0, step=1.0)
     st.divider()
 
     if is_multi:
@@ -395,8 +396,6 @@ def main():
         
         market_price_non_res_man = st.number_input("비거주 주택 시가 합계 (만원)", min_value=0, value=300000, step=1000, format="%d")
         st.markdown(f"<div style='color: #4CAF50; font-weight: bold; margin-top: -10px; margin-bottom: 10px;'>{format_korean_currency(market_price_non_res_man * 10000)}</div>", unsafe_allow_html=True)
-        
-        realization_rate = st.slider("공시가격 현실화율 (%)", min_value=50.0, max_value=100.0, value=69.0, step=1.0)
         
         market_price_res = market_price_res_man * 10000
         market_price_non_res = market_price_non_res_man * 10000
@@ -417,9 +416,7 @@ def main():
         st.markdown(f"<div style='color: #4CAF50; font-weight: bold; margin-top: -10px; margin-bottom: 10px;'>{format_korean_currency(market_total_man * 10000)}</div>", unsafe_allow_html=True)
         market_total = market_total_man * 10000
         
-        realization_rate = st.slider("공시가격 현실화율 (%)", min_value=50.0, max_value=100.0, value=69.0, step=1.0)
         total_price = int(market_total * (realization_rate / 100.0))
-        
         st.info(f"📌 **과세 기준 공시가: `{total_price:,.0f}` 원**")
 
         st.divider()
@@ -437,13 +434,10 @@ def main():
 
         st.divider()
         st.subheader("🧑 연령 및 기간 정보")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            base_age = st.number_input("2026년 기준 연령(세)", min_value=20, max_value=110, value=70)
-        with col2:
-            base_holding_years = st.number_input("2026년 기준 보유기간(년)", min_value=1, max_value=50, value=10)
-        with col3:
-            base_residence_years = st.number_input("2026년 기준 거주기간(년)", min_value=0, max_value=50, value=10)
+        # [핵심 수정 2] 모바일에서 입력 폼이 좁아지거나 초기화되는 st.columns 제거 및 변수 라벨 원상복구
+        base_age = st.number_input("2026년 기준 연령 (세)", min_value=20, max_value=110, value=70)
+        base_holding_years = st.number_input("2026년 기준 보유기간 (년)", min_value=1, max_value=50, value=10)
+        base_residence_years = st.number_input("2026년 기준 거주기간 (년)", min_value=0, max_value=50, value=10)
 
     st.divider()
     apply_tax_cap = st.checkbox("전년 대비 세부담 상한(200%) 적용", value=False)
