@@ -364,7 +364,7 @@ class ComprehensiveTaxEngine:
 # 2. Streamlit 웹 인터페이스 (메인 실행부)
 # =========================================================
 def main():
-  st.set_page_config(page_title="종합부동산세 및 보유세 통합 시뮬레이터", page_icon="🏠", layout="wide")
+  st.set_page_config(page_title="종합부동산세 시뮬레이터", page_icon="🏠", layout="wide")
 
   st.title("🏠 종합부동산세 및 총 보유세 시뮬레이터")
   st.markdown("---")
