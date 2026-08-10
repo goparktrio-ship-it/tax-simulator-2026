@@ -371,6 +371,9 @@ def main():
 
   with st.expander("⚙️ 시뮬레이션 설정 (여기를 눌러 입력값을 변경하세요)", expanded=True):
     
+    # [핵심 수정] 2번 전 업데이트에서 `[0]` 인덱싱이 누락되어,
+    # property_choice 변수에 문자열이 아닌 Tuple("RESIDENT_1HOME", "...") 전체가 담겨버리는 치명적 오류 발생.
+    # 이로 인해 엔진 내부의 모든 if property_type == "RESIDENT_1HOME": 조건문이 False로 처리되어 재산세/공제액이 박살났던 것을 수정했습니다.
     property_choice = st.selectbox(
         "과세 유형 선택",
         [
@@ -379,12 +382,10 @@ def main():
             ("HEAVY_MULTI_HOME", "1세대 1주택자를 제외한 조정지역 주택 보유자 + 3주택 이상"),
         ],
         format_func=lambda x: x[1],
-    )
+    )[0]  # <-- 바로 이 [0] 이 빠져 있었습니다!
     
     is_multi = property_choice in ["LOCAL_MULTI_HOME", "HEAVY_MULTI_HOME"]
     
-    # [핵심 수정 1] 공시가격 현실화율 슬라이더를 분기문 바깥으로 원상복구
-    # (Streamlit에서 슬라이더가 렌더링될 때 State(값)가 날아가거나 0으로 초기화되는 치명적 버그 해결)
     realization_rate = st.slider("공시가격 현실화율 (%)", min_value=50.0, max_value=100.0, value=69.0, step=1.0)
     st.divider()
 
@@ -434,7 +435,6 @@ def main():
 
         st.divider()
         st.subheader("🧑 연령 및 기간 정보")
-        # [핵심 수정 2] 모바일에서 입력 폼이 좁아지거나 초기화되는 st.columns 제거 및 변수 라벨 원상복구
         base_age = st.number_input("2026년 기준 연령 (세)", min_value=20, max_value=110, value=70)
         base_holding_years = st.number_input("2026년 기준 보유기간 (년)", min_value=1, max_value=50, value=10)
         base_residence_years = st.number_input("2026년 기준 거주기간 (년)", min_value=0, max_value=50, value=10)
