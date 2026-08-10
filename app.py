@@ -366,7 +366,7 @@ class ComprehensiveTaxEngine:
 def main():
   st.set_page_config(page_title="2026 종부세 시뮬레이터", page_icon="🏠", layout="wide")
 
-  st.title("🏠 종합부동산세 및 총 보유세 시뮬레이터")
+  st.title("🏠 2026 종부세 시뮬레이터")
   st.markdown("---")
 
   with st.expander("⚙️ 시뮬레이션 설정 (여기를 눌러 입력값을 변경하세요)", expanded=True):
