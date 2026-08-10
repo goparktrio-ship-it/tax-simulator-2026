@@ -87,8 +87,11 @@ class ComprehensiveTaxEngine:
     ratio = price_res / total_price if total_price > 0 else 0
 
     if year_label == "2026년":
+      # [버그 롤백 및 수정] 이전 사이드바 제거 과정에서 로직이 꼬여 단독/공동명의 공제액이 오작동하던 부분을 원상복구했습니다.
+      if is_joint_default:
+        return 1_800_000_000
       if property_type == "RESIDENT_1HOME":
-        return 1_800_000_000 if is_joint_default else 1_200_000_000
+        return 1_200_000_000
       return 900_000_000
     else:
       if property_type == "RESIDENT_1HOME":
@@ -369,7 +372,6 @@ def main():
   st.title("🏠 종합부동산세 및 총 보유세 시뮬레이터")
   st.markdown("---")
 
-  # [모바일 친화적 변경] sidebar를 완전히 없애고 메인 화면 expander 폼으로 배치
   with st.expander("⚙️ 시뮬레이션 설정 (여기를 눌러 입력값을 변경하세요)", expanded=True):
     
     property_choice = st.selectbox(
@@ -466,7 +468,6 @@ def main():
 
   st.markdown("### 📊 산출 결과")
   
-  # 모바일 화면에서는 columns가 세로로 층층이 쌓이도록 처리됨
   cols = st.columns(3)
   for idx, res in enumerate(results):
     with cols[idx]:
