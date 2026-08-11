@@ -100,19 +100,21 @@ class ComprehensiveTaxEngine:
         return 400_000_000 + int(500_000_000 * ratio)
 
   @classmethod
-  def get_fmvr(cls, property_type: str, year_label: str) -> float:
-    if property_type in ["RESIDENT_1HOME", "LOCAL_MULTI_HOME"]:
-      if year_label == "2026년":
-        return 60.0
-      else:
-        return 70.0
-    elif property_type == "HEAVY_MULTI_HOME":
+  def get_fmvr(cls, property_type: str, year_label: str, is_joint_default: bool = False) -> float:
+    # 1세대 1주택자 공동명의(기본과세)는 다주택자와 동일하게 60% -> 70% -> 80% 상한 적용
+    if property_type == "HEAVY_MULTI_HOME" or (property_type == "RESIDENT_1HOME" and is_joint_default):
       if year_label == "2026년":
         return 60.0
       elif year_label == "2027년":
         return 70.0
       else:
         return 80.0
+    elif property_type in ["RESIDENT_1HOME", "LOCAL_MULTI_HOME"]:
+      # 단독명의 1주택자 및 지방 다주택자는 70% 상한 유지
+      if year_label == "2026년":
+        return 60.0
+      else:
+        return 70.0
     return 60.0
 
   @classmethod
@@ -237,7 +239,7 @@ class ComprehensiveTaxEngine:
   ) -> dict:
     
     deduction = cls.get_basic_deduction(property_type, year_label, is_joint_default, price_res, total_price)
-    fmvr = cls.get_fmvr(property_type, year_label)
+    fmvr = cls.get_fmvr(property_type, year_label, is_joint_default)
     pt_fmvr = cls.get_pt_fmvr(property_type, year_label)
 
     if is_joint_default and property_type == "RESIDENT_1HOME":
@@ -371,9 +373,6 @@ def main():
 
   with st.expander("⚙️ 시뮬레이션 설정 (여기를 눌러 입력값을 변경하세요)", expanded=True):
     
-    # [핵심 수정] 2번 전 업데이트에서 `[0]` 인덱싱이 누락되어,
-    # property_choice 변수에 문자열이 아닌 Tuple("RESIDENT_1HOME", "...") 전체가 담겨버리는 치명적 오류 발생.
-    # 이로 인해 엔진 내부의 모든 if property_type == "RESIDENT_1HOME": 조건문이 False로 처리되어 재산세/공제액이 박살났던 것을 수정했습니다.
     property_choice = st.selectbox(
         "과세 유형 선택",
         [
@@ -382,7 +381,7 @@ def main():
             ("HEAVY_MULTI_HOME", "조정지역 주택 보유 다주택자 + 3주택 이상"),
         ],
         format_func=lambda x: x[1],
-    )[0]  # <-- 바로 이 [0] 이 빠져 있었습니다!
+    )[0] 
     
     is_multi = property_choice in ["LOCAL_MULTI_HOME", "HEAVY_MULTI_HOME"]
     
