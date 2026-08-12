@@ -101,7 +101,6 @@ class ComprehensiveTaxEngine:
 
   @classmethod
   def get_fmvr(cls, property_type: str, year_label: str, is_joint_default: bool = False) -> float:
-    # 1세대 1주택자 공동명의(기본과세)는 다주택자와 동일하게 60% -> 70% -> 80% 상한 적용
     if property_type == "HEAVY_MULTI_HOME" or (property_type == "RESIDENT_1HOME" and is_joint_default):
       if year_label == "2026년":
         return 60.0
@@ -110,7 +109,6 @@ class ComprehensiveTaxEngine:
       else:
         return 80.0
     elif property_type in ["RESIDENT_1HOME", "LOCAL_MULTI_HOME"]:
-      # 단독명의 1주택자 및 지방 다주택자는 70% 상한 유지
       if year_label == "2026년":
         return 60.0
       else:
@@ -234,6 +232,7 @@ class ComprehensiveTaxEngine:
       holding_years: int,
       residence_years: int,
       prev_year_tax: int,
+      prev_year_prop_tax: int,
       is_joint_default: bool,
       apply_tax_cap: bool,
   ) -> dict:
@@ -242,23 +241,49 @@ class ComprehensiveTaxEngine:
     fmvr = cls.get_fmvr(property_type, year_label, is_joint_default)
     pt_fmvr = cls.get_pt_fmvr(property_type, year_label)
 
+    # 1. 재산세 산출 및 세부담 상한(105% ~ 130%) 로직 적용
+    calculated_prop_tax = cls.calc_property_tax(total_price, pt_fmvr)
+    
+    if total_price <= 300_000_000:
+        pt_cap_rate = 1.05
+    elif total_price <= 600_000_000:
+        pt_cap_rate = 1.10
+    else:
+        pt_cap_rate = 1.30
+
+    if apply_tax_cap and prev_year_prop_tax > 0:
+        prop_tax_cap_limit = int(prev_year_prop_tax * pt_cap_rate)
+    else:
+        prop_tax_cap_limit = float("inf")
+
+    final_property_tax = min(calculated_prop_tax, prop_tax_cap_limit)
+    prop_cap_applied = calculated_prop_tax > prop_tax_cap_limit
+    
+    # 상한 적용으로 재산세가 줄어든 비율만큼, 종부세에서 공제되는 '재산세액'도 비례 축소
+    pt_cap_ratio = final_property_tax / calculated_prop_tax if calculated_prop_tax > 0 else 1.0
+
+    # 2. 종부세 산출 로직
     if is_joint_default and property_type == "RESIDENT_1HOME":
         person_price = total_price / 2
         person_deduct = deduction / 2
         person_tb = int(max(0, person_price - person_deduct) * (fmvr / 100.0))
         
         p_gross, applied_tax_rate = cls.calc_gross_tax(person_tb, property_type, year_label)
-        p_prop_ded = cls.calc_property_tax_deduction(person_tb, pt_fmvr)
-        p_after = max(0, p_gross - p_prop_ded)
+        p_prop_ded_raw = cls.calc_property_tax_deduction(person_tb, pt_fmvr)
+        p_prop_ded_adj = int(p_prop_ded_raw * pt_cap_ratio) # 상한 비율 적용
+        
+        p_after = max(0, p_gross - p_prop_ded_adj)
         
         tax_base = person_tb * 2
         gross_tax = p_gross * 2
-        prop_tax_ded = p_prop_ded * 2
+        prop_tax_ded = p_prop_ded_adj * 2
         tax_after_prop = p_after * 2
     else:
         tax_base = cls.calc_tax_base(total_price, deduction, fmvr)
         gross_tax, applied_tax_rate = cls.calc_gross_tax(tax_base, property_type, year_label)
-        prop_tax_ded = cls.calc_property_tax_deduction(tax_base, pt_fmvr)
+        prop_tax_ded_raw = cls.calc_property_tax_deduction(tax_base, pt_fmvr)
+        prop_tax_ded = int(prop_tax_ded_raw * pt_cap_ratio) # 상한 비율 적용
+        
         tax_after_prop = max(0, gross_tax - prop_tax_ded)
 
     is_eligible = (property_type == "RESIDENT_1HOME") and (not is_joint_default)
@@ -293,9 +318,7 @@ class ComprehensiveTaxEngine:
 
     rural_tax = int(final_tax * 0.20)
     jongbu_total_payment = final_tax + rural_tax
-
-    property_tax = cls.calc_property_tax(total_price, pt_fmvr)
-    total_holding_tax = property_tax + jongbu_total_payment
+    total_holding_tax = final_property_tax + jongbu_total_payment
 
     return {
         "year": year_label,
@@ -322,7 +345,9 @@ class ComprehensiveTaxEngine:
         "cap_applied": cap_applied,
         "rural_tax": rural_tax,
         "jongbu_total_payment": jongbu_total_payment,
-        "property_tax": property_tax,
+        "property_tax": final_property_tax,
+        "prop_cap_applied": prop_cap_applied,
+        "prop_tax_cap_limit": prop_tax_cap_limit,
         "total_holding_tax": total_holding_tax,
     }
 
@@ -336,12 +361,14 @@ class ComprehensiveTaxEngine:
       base_holding_years: int,
       base_residence_years: int,
       tax_2025: int,
+      prop_tax_2025: int,
       is_joint_default: bool = False,
       apply_tax_cap: bool = False, 
   ) -> list:
     years_config = [("2026년", 0), ("2027년", 1), ("2028년 이후", 2)]
     results = []
     prev_tax = tax_2025
+    prev_prop_tax = prop_tax_2025
 
     for label, offset in years_config:
       res = cls.run_single_year(
@@ -353,11 +380,13 @@ class ComprehensiveTaxEngine:
           holding_years=base_holding_years + offset,
           residence_years=base_residence_years + offset,
           prev_year_tax=prev_tax,
+          prev_year_prop_tax=prev_prop_tax,
           is_joint_default=is_joint_default,
           apply_tax_cap=apply_tax_cap,
       )
       results.append(res)
       prev_tax = res["final_tax"]
+      prev_prop_tax = res["property_tax"]
 
     return results
 
@@ -439,12 +468,17 @@ def main():
         base_residence_years = st.number_input("2026년 기준 거주기간 (년)", min_value=0, max_value=50, value=10)
 
     st.divider()
-    apply_tax_cap = st.checkbox("전년 대비 세부담 상한(200%) 적용", value=False)
+    apply_tax_cap = st.checkbox("전년 대비 세부담 상한(종부세 200%, 재산세 105~130%) 적용", value=False)
     
     if apply_tax_cap:
-        tax_2025 = st.number_input("2025년도 납부 종부세액 (원)", min_value=0, value=5_000_000, step=100_000, format="%d")
+        col_cap1, col_cap2 = st.columns(2)
+        with col_cap1:
+            tax_2025 = st.number_input("2025년도 납부 종부세액 (원)", min_value=0, value=5_000_000, step=100_000, format="%d")
+        with col_cap2:
+            prop_tax_2025 = st.number_input("2025년도 납부 재산세액 (원)", min_value=0, value=1_500_000, step=100_000, format="%d")
     else:
         tax_2025 = 0
+        prop_tax_2025 = 0
 
   # 결과 계산
   results = ComprehensiveTaxEngine.run_simulation(
@@ -455,6 +489,7 @@ def main():
       base_holding_years=base_holding_years,
       base_residence_years=base_residence_years,
       tax_2025=tax_2025,
+      prop_tax_2025=prop_tax_2025,
       is_joint_default=is_joint_default,
       apply_tax_cap=apply_tax_cap,
   )
@@ -519,9 +554,12 @@ def main():
               st.markdown(f"**🛑 공제 한도**: {res['credit_limit_str']} {limit_mark}")
               st.markdown(f"**🎯 최종 세액공제액**: ▲ {res['final_credit_amount']:,.0f} 원")
           
-          if res['cap_applied']:
+          if res['cap_applied'] or res['prop_cap_applied']:
               st.divider()
-              st.error(f"※ 전년 대비 200% 세부담 상한 발동 (상한액: {res['tax_cap_limit']:,.0f}원)")
+              if res['prop_cap_applied']:
+                  st.warning(f"※ 재산세 세부담 상한 발동 (상한액: {res['prop_tax_cap_limit']:,.0f}원)")
+              if res['cap_applied']:
+                  st.error(f"※ 종부세 200% 세부담 상한 발동 (상한액: {res['tax_cap_limit']:,.0f}원)")
 
   st.markdown("---")
   st.markdown("#### 📊 연도별 상세 보유세 산출 구조표")
