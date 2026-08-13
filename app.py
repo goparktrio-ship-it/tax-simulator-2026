@@ -262,13 +262,14 @@ class ComprehensiveTaxEngine:
     # 상한 적용으로 재산세가 줄어든 비율만큼, 종부세에서 공제되는 '재산세액'도 비례 축소
     pt_cap_ratio = final_property_tax / calculated_prop_tax if calculated_prop_tax > 0 else 1.0
 
-    # --- 🚨 과세 대상(Threshold) 절대 기준 판별 로직 추가 ---
+    # --- 🚨 [수정 완료] 과세 대상(Threshold) 절대 기준 판별 로직 ---
+    # 140억 -> 14억으로 0 하나씩 정상화했습니다!
     is_taxable = True
     
     if year_label == "2026년":
-        tax_threshold = 18_000_000_000 if (property_type == "RESIDENT_1HOME" and is_joint_default) else (12_000_000_000 if property_type == "RESIDENT_1HOME" else 9_000_000_000)
+        tax_threshold = 1_800_000_000 if (property_type == "RESIDENT_1HOME" and is_joint_default) else (1_200_000_000 if property_type == "RESIDENT_1HOME" else 900_000_000)
     else:
-        tax_threshold = 18_000_000_000 if (property_type == "RESIDENT_1HOME" and is_joint_default) else (14_000_000_000 if property_type == "RESIDENT_1HOME" else 9_000_000_000)
+        tax_threshold = 1_800_000_000 if (property_type == "RESIDENT_1HOME" and is_joint_default) else (1_400_000_000 if property_type == "RESIDENT_1HOME" else 900_000_000)
 
     if total_price <= tax_threshold:
         is_taxable = False
@@ -542,7 +543,7 @@ def main():
               unsafe_allow_html=True
           )
           
-          if not res['is_taxable']:
+          if not res.get('is_taxable', True):
               st.success(f"✅ **과세 대상 미달 (종부세 0원)**")
               st.markdown(f"└ 공시가격이 기준선({res['tax_threshold']//100000000}억) 이하입니다.")
               if res['prop_cap_applied']:
