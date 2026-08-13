@@ -262,31 +262,49 @@ class ComprehensiveTaxEngine:
     # 상한 적용으로 재산세가 줄어든 비율만큼, 종부세에서 공제되는 '재산세액'도 비례 축소
     pt_cap_ratio = final_property_tax / calculated_prop_tax if calculated_prop_tax > 0 else 1.0
 
-    # 2. 종부세 산출 로직
-    if is_joint_default and property_type == "RESIDENT_1HOME":
-        person_price = total_price / 2
-        person_deduct = deduction / 2
-        person_tb = int(max(0, person_price - person_deduct) * (fmvr / 100.0))
-        
-        p_gross, applied_tax_rate = cls.calc_gross_tax(person_tb, property_type, year_label)
-        p_prop_ded_raw = cls.calc_property_tax_deduction(person_tb, pt_fmvr)
-        p_prop_ded_adj = int(p_prop_ded_raw * pt_cap_ratio) # 상한 비율 적용
-        
-        p_after = max(0, p_gross - p_prop_ded_adj)
-        
-        tax_base = person_tb * 2
-        gross_tax = p_gross * 2
-        prop_tax_ded = p_prop_ded_adj * 2
-        tax_after_prop = p_after * 2
+    # --- 🚨 과세 대상(Threshold) 절대 기준 판별 로직 추가 ---
+    is_taxable = True
+    
+    if year_label == "2026년":
+        tax_threshold = 18_000_000_000 if (property_type == "RESIDENT_1HOME" and is_joint_default) else (12_000_000_000 if property_type == "RESIDENT_1HOME" else 9_000_000_000)
     else:
-        tax_base = cls.calc_tax_base(total_price, deduction, fmvr)
-        gross_tax, applied_tax_rate = cls.calc_gross_tax(tax_base, property_type, year_label)
-        prop_tax_ded_raw = cls.calc_property_tax_deduction(tax_base, pt_fmvr)
-        prop_tax_ded = int(prop_tax_ded_raw * pt_cap_ratio) # 상한 비율 적용
-        
-        tax_after_prop = max(0, gross_tax - prop_tax_ded)
+        tax_threshold = 18_000_000_000 if (property_type == "RESIDENT_1HOME" and is_joint_default) else (14_000_000_000 if property_type == "RESIDENT_1HOME" else 9_000_000_000)
 
-    is_eligible = (property_type == "RESIDENT_1HOME") and (not is_joint_default)
+    if total_price <= tax_threshold:
+        is_taxable = False
+
+    # 2. 종부세 산출 로직
+    if not is_taxable:
+        tax_base = 0
+        applied_tax_rate = 0.0
+        gross_tax = 0
+        prop_tax_ded = 0
+        tax_after_prop = 0
+    else:
+        if is_joint_default and property_type == "RESIDENT_1HOME":
+            person_price = total_price / 2
+            person_deduct = deduction / 2
+            person_tb = int(max(0, person_price - person_deduct) * (fmvr / 100.0))
+            
+            p_gross, applied_tax_rate = cls.calc_gross_tax(person_tb, property_type, year_label)
+            p_prop_ded_raw = cls.calc_property_tax_deduction(person_tb, pt_fmvr)
+            p_prop_ded_adj = int(p_prop_ded_raw * pt_cap_ratio) # 상한 비율 적용
+            
+            p_after = max(0, p_gross - p_prop_ded_adj)
+            
+            tax_base = person_tb * 2
+            gross_tax = p_gross * 2
+            prop_tax_ded = p_prop_ded_adj * 2
+            tax_after_prop = p_after * 2
+        else:
+            tax_base = cls.calc_tax_base(total_price, deduction, fmvr)
+            gross_tax, applied_tax_rate = cls.calc_gross_tax(tax_base, property_type, year_label)
+            prop_tax_ded_raw = cls.calc_property_tax_deduction(tax_base, pt_fmvr)
+            prop_tax_ded = int(prop_tax_ded_raw * pt_cap_ratio) # 상한 비율 적용
+            
+            tax_after_prop = max(0, gross_tax - prop_tax_ded)
+
+    is_eligible = (property_type == "RESIDENT_1HOME") and (not is_joint_default) and is_taxable
     total_rate, age_rate, period_rate, period_desc = cls.calc_tax_credits(
         year_label, age, holding_years, residence_years, is_eligible
     )
@@ -323,6 +341,8 @@ class ComprehensiveTaxEngine:
     return {
         "year": year_label,
         "is_eligible": is_eligible,
+        "is_taxable": is_taxable,
+        "tax_threshold": tax_threshold,
         "deduction": deduction,
         "fmvr": fmvr,
         "tax_base": tax_base,
@@ -522,44 +542,50 @@ def main():
               unsafe_allow_html=True
           )
           
-          if is_multi and res['year'] != "2026년":
-              ratio = price_res / total_price if total_price > 0 else 0
-              st.markdown(f"**💡 기본공제액**: {res['deduction']:,.0f} 원")
-              st.caption(f"└ 다주택 산식: 기본 4억 + (5억×거주비중 {ratio*100:.1f}%)")
-          elif is_joint_default:
-              st.markdown(f"**💡 기본공제액**: {res['deduction']:,.0f} 원 *(부부 합산, 인당 {res['deduction']//2:,.0f}원)*")
-          else:
-              st.markdown(f"**💡 기본공제액**: {res['deduction']:,.0f} 원")
-              
-          st.markdown(f"**📊 과세표준**: {res['tax_base']:,.0f} 원 *(FMVR {res['fmvr']:.0f}%)*")
-          st.markdown(f"**📄 종부세 산출세액**: {res['gross_tax']:,.0f} 원")
-          st.markdown(f"**➖ 재산세 중복 차감**: ▲ {res['prop_tax_ded']:,.0f} 원")
-          st.divider()
-          
-          if res['tax_base'] <= 0:
-              st.success("✅ **기본공제액 미달 (과세표준 0원)**")
-              st.markdown("└ 종부세 납부 대상이 아닙니다.")
-          elif not res['is_eligible']:
-              if is_multi:
-                  st.markdown("**✅ 세액공제율**: 0% *(다주택자는 세액공제 대상이 아님)*")
-              else:
-                  st.markdown("**✅ 세액공제율**: 0% *(공동명의 기본과세 적용으로 배제)*")
-              st.markdown("**🎯 최종 세액공제액**: 0 원")
-          else:
-              st.markdown(f"**✅ 세액공제율**: {res['total_rate_pct']}% (연령{res['age_rate_pct']}%+기간{res['period_rate_pct']}%)")
-              st.caption(f"└ 적용상세: {res['period_desc']}")
-              st.markdown(f"**💰 산출 세액공제액**: {res['calc_credit_amount']:,.0f} 원")
-              
-              limit_mark = "🚨초과" if res['credit_cap_applied'] else ""
-              st.markdown(f"**🛑 공제 한도**: {res['credit_limit_str']} {limit_mark}")
-              st.markdown(f"**🎯 최종 세액공제액**: ▲ {res['final_credit_amount']:,.0f} 원")
-          
-          if res['cap_applied'] or res['prop_cap_applied']:
-              st.divider()
+          if not res['is_taxable']:
+              st.success(f"✅ **과세 대상 미달 (종부세 0원)**")
+              st.markdown(f"└ 공시가격이 기준선({res['tax_threshold']//100000000}억) 이하입니다.")
               if res['prop_cap_applied']:
+                  st.divider()
                   st.warning(f"※ 재산세 세부담 상한 발동 (상한액: {res['prop_tax_cap_limit']:,.0f}원)")
-              if res['cap_applied']:
-                  st.error(f"※ 종부세 200% 세부담 상한 발동 (상한액: {res['tax_cap_limit']:,.0f}원)")
+          else:
+              if is_multi and res['year'] != "2026년":
+                  ratio = price_res / total_price if total_price > 0 else 0
+                  st.markdown(f"**💡 기본공제액**: {res['deduction']:,.0f} 원")
+                  st.caption(f"└ 다주택 산식: 기본 4억 + (5억×거주비중 {ratio*100:.1f}%)")
+              elif is_joint_default:
+                  st.markdown(f"**💡 기본공제액**: {res['deduction']:,.0f} 원 *(부부 합산, 인당 {res['deduction']//2:,.0f}원)*")
+              else:
+                  st.markdown(f"**💡 기본공제액**: {res['deduction']:,.0f} 원")
+                  
+              st.markdown(f"**📊 과세표준**: {res['tax_base']:,.0f} 원 *(FMVR {res['fmvr']:.0f}%)*")
+              st.markdown(f"**📄 종부세 산출세액**: {res['gross_tax']:,.0f} 원")
+              st.markdown(f"**➖ 재산세 중복 차감**: ▲ {res['prop_tax_ded']:,.0f} 원")
+              st.divider()
+              
+              if res['tax_base'] <= 0:
+                  st.success("✅ **과세표준 0원 (산출세액 없음)**")
+              elif not res['is_eligible']:
+                  if is_multi:
+                      st.markdown("**✅ 세액공제율**: 0% *(다주택자는 세액공제 대상이 아님)*")
+                  else:
+                      st.markdown("**✅ 세액공제율**: 0% *(공동명의 기본과세 적용으로 배제)*")
+                  st.markdown("**🎯 최종 세액공제액**: 0 원")
+              else:
+                  st.markdown(f"**✅ 세액공제율**: {res['total_rate_pct']}% (연령{res['age_rate_pct']}%+기간{res['period_rate_pct']}%)")
+                  st.caption(f"└ 적용상세: {res['period_desc']}")
+                  st.markdown(f"**💰 산출 세액공제액**: {res['calc_credit_amount']:,.0f} 원")
+                  
+                  limit_mark = "🚨초과" if res['credit_cap_applied'] else ""
+                  st.markdown(f"**🛑 공제 한도**: {res['credit_limit_str']} {limit_mark}")
+                  st.markdown(f"**🎯 최종 세액공제액**: ▲ {res['final_credit_amount']:,.0f} 원")
+              
+              if res['cap_applied'] or res['prop_cap_applied']:
+                  st.divider()
+                  if res['prop_cap_applied']:
+                      st.warning(f"※ 재산세 세부담 상한 발동 (상한액: {res['prop_tax_cap_limit']:,.0f}원)")
+                  if res['cap_applied']:
+                      st.error(f"※ 종부세 200% 세부담 상한 발동 (상한액: {res['tax_cap_limit']:,.0f}원)")
 
   st.markdown("---")
   st.markdown("#### 📊 연도별 상세 보유세 산출 구조표")
@@ -568,13 +594,14 @@ def main():
   for res in results:
     table_data.append({
         "과세 연도": res["year"],
-        "기본공제액": f"{res['deduction']:,.0f} 원",
+        "과세 대상 여부": "대상" if res.get("is_taxable", True) else "제외(기준미달)",
+        "기본공제액": f"{res['deduction']:,.0f} 원" if res.get("is_taxable", True) else "-",
         "과세표준(FMVR적용)": f"{res['tax_base']:,.0f} 원 ({res['fmvr']:.0f}%)",
         "주택분 재산세": f"{res['property_tax']:,.0f} 원",
         "종부세 산출세액": f"{res['gross_tax']:,.0f} 원",
-        "재산세 중복분 차감": f"▲ {res['prop_tax_ded']:,.0f} 원",
-        "산출 세액공제액 (한도 전)": f"{res['calc_credit_amount']:,.0f} 원 ({res['total_rate_pct']}%)",
-        "최종 세액공제액 (한도 후)": f"▲ {res['final_credit_amount']:,.0f} 원",
+        "재산세 중복분 차감": f"▲ {res['prop_tax_ded']:,.0f} 원" if res.get("is_taxable", True) else "-",
+        "산출 세액공제액 (한도 전)": f"{res['calc_credit_amount']:,.0f} 원 ({res['total_rate_pct']}%)" if res.get("is_taxable", True) else "-",
+        "최종 세액공제액 (한도 후)": f"▲ {res['final_credit_amount']:,.0f} 원" if res.get("is_taxable", True) else "-",
         "종부세 본세": f"{res['final_tax']:,.0f} 원",
         "농어촌특별세 (20%)": f"{res['rural_tax']:,.0f} 원",
         "최종 종부세 합계": f"{res['jongbu_total_payment']:,.0f} 원",
